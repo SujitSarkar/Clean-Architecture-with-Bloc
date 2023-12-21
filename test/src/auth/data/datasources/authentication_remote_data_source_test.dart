@@ -1,104 +1,85 @@
+import 'dart:convert';
 import 'package:clean_and_bloc/core/errors/exception.dart';
-import 'package:clean_and_bloc/core/errors/failure.dart';
+import 'package:clean_and_bloc/core/utils/constants.dart';
+import 'package:clean_and_bloc/core/utils/typedef.dart';
 import 'package:clean_and_bloc/src/auth/data/datasources/authentication_remote_data_source.dart';
 import 'package:clean_and_bloc/src/auth/data/models/user_model.dart';
-import 'package:clean_and_bloc/src/auth/data/repositories/auth_repository_implementation.dart';
-import 'package:clean_and_bloc/src/auth/domain/entities/user.dart';
-import 'package:dartz/dartz.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:http/http.dart' as http;
 
-class MockAuthRemoteDataSource extends Mock
-    implements AuthenticationRemoteDataSource {}
+class MockClient extends Mock implements http.Client {}
 
 void main() {
+  late http.Client client;
   late AuthenticationRemoteDataSource remoteDataSource;
-  late AuthenticationRepositoryImplementation repositoryImplementation;
-
-  const tException =
-      APIException(message: 'Internal server error', statusCode: 500);
 
   setUp(() {
-    remoteDataSource = MockAuthRemoteDataSource();
-    repositoryImplementation =
-        AuthenticationRepositoryImplementation(remoteDataSource);
+    client = MockClient();
+    remoteDataSource = AuthRemoteDataSrcImpl(client);
+    registerFallbackValue(Uri());
   });
 
-  group('createUser', () {
-    const String name = 'whatever.name';
-    const String avatar = 'whatever.avatar';
-    const String createdAt = 'whatever.createdAt';
+  group('CreateUser', () {
+    test('Should complete successfully when the status code is 200 or 201',
+        () async {
+      when(() => client.post(any(), body: any(named: 'body'))).thenAnswer(
+          (_) async => http.Response('User created successfully', 201));
 
-    test(
-        'Should call the [AuthenticationRemoteDataSource.createUser] and complete '
-        'successfully when the call to the source is successful', () async {
-      // Arrange
-      when(() => remoteDataSource.createUser(
-              name: any(named: 'name'),
-              avatar: any(named: 'avatar'),
-              createdAt: any(named: 'createdAt')))
-          .thenAnswer((invocation) async => Future.value());
+      final methodCall = remoteDataSource.createUser;
 
-      // Act
-      final result = await repositoryImplementation.createUser(
-          name: name, avatar: avatar, createdAt: createdAt);
+      expect(methodCall(name: 'name', avatar: 'avatar', createdAt: 'createdAt'),
+          completes);
 
-      // Assert
-      expect(result, equals(const Right(null)));
-      verify(() => remoteDataSource.createUser(
-          name: name, avatar: avatar, createdAt: createdAt)).called(1);
-      verifyNoMoreInteractions(remoteDataSource);
+      verify(() => client.post(Uri.parse('$kBaseUrl/$kCreateUserEndpoint'),
+          body: jsonEncode({
+            'name': 'name',
+            'avatar': 'avatar',
+            'createdAt': 'createdAt'
+          }))).called(1);
+
+      verifyNoMoreInteractions(client);
     });
 
-    test(
-        'Should return a [APIFailure] when the call to the remote '
-        'source is successful', () async {
-      // Arrange
-      when(() => remoteDataSource.createUser(
-          name: any(named: 'name'),
-          avatar: any(named: 'avatar'),
-          createdAt: any(named: 'createdAt'))).thenThrow(tException);
+    test('Should throw [APIException] when the status code is not 200 or 201',
+        () async {
+      when(() => client.post(any(), body: any(named: 'body'))).thenAnswer(
+          (invocation) async => http.Response('Invalid email address', 400));
 
-      // Act
-      final result = await repositoryImplementation.createUser(
-          name: name, avatar: avatar, createdAt: createdAt);
+      final methodCall = remoteDataSource.createUser;
 
-      // Assert
       expect(
-          result,
-          equals(Left(APIFailure(
-              message: tException.message,
-              statusCode: tException.statusCode))));
+          () async => methodCall(
+              name: 'name', avatar: 'avatar', createdAt: 'createdAt'),
+          throwsA(const APIException(
+              message: 'Invalid email address', statusCode: 400)));
 
-      verify(() => remoteDataSource.createUser(
-          name: name, avatar: avatar, createdAt: createdAt)).called(1);
-      verifyNoMoreInteractions(remoteDataSource);
+      verify(() => client.post(Uri.parse('$kBaseUrl/$kCreateUserEndpoint'),
+          body: jsonEncode({
+            'name': 'name',
+            'avatar': 'avatar',
+            'createdAt': 'createdAt'
+          }))).called(1);
+
+      verifyNoMoreInteractions(client);
     });
   });
 
-  group('getUsers', () {
-    test(
-        'Should call the [AuthenticationRemoteDataSource.getUsers] and returns [List<User>] '
-        'when call to remote source is successful', () async {
-      const expectedUsers = [UserModel.empty()];
-      when(() => remoteDataSource.getUser())
-          .thenAnswer((invocation) async => expectedUsers);
+  group('GetUsers', () {
+    const tUsers = [UserModel.empty()];
 
-      final result = await repositoryImplementation.getUsers();
+    test('Should return [List<User>] when the status code is 200', () async {
+      when(() => client.get(any())).thenAnswer((invocation) async {
+        DataMap map = tUsers.first.toMap();
+        return http.Response(jsonEncode(map), 200);
+      });
 
-      expect(result, isA<Right<dynamic, List<User>>>());
-      verify(() => remoteDataSource.getUser()).called(1);
-      verifyNoMoreInteractions(remoteDataSource);
-    });
+      final result = await remoteDataSource.getUser();
 
-    test(
-        'Should return a [APIFailure] when the call to the remote '
-        'source is unsuccessful', () async {
-      when(() => remoteDataSource.getUser()).thenThrow(tException);
-      final result = await repositoryImplementation.getUsers();
-      expect(result, equals(Left(APIFailure.fromException(tException))));
-      verify(() => remoteDataSource.getUser()).called(1);
-      verifyNoMoreInteractions(remoteDataSource);
+      expect(result, tUsers);
+
+      verify(()=> client.get(Uri.parse('$kBaseUrl$kGetUserEndpoint'))).called(1);
+      verifyNoMoreInteractions(client);
     });
   });
 }

@@ -23,7 +23,6 @@ class AuthenticationRepositoryImplementation
     // Check if when the remoteDataSource thrown an exception, we returns a
     // failure and if doesn't throw an exception, we return the actual
     // excepted data
-
     try {
       await _remoteDataSource.createUser(name: name, avatar: avatar, createdAt: createdAt);
       return const Right(null);
